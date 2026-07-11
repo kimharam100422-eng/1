@@ -1,6 +1,6 @@
 // ============================================================
 // 무빙 도장 — Movement Dojo
-// 카이팅 & 스킬샷 회피 연습 엔진
+// 카이팅 & 스킬샷 회피 연습 엔진 (벽/구조물 포함)
 // ============================================================
 
 const canvas = document.getElementById('arena');
@@ -55,6 +55,7 @@ const player = {
 let enemies = [];     // kiting mode: chasers that must be kept at range
 let projectiles = []; // dodge mode: skillshots
 let particles = [];
+let walls = [];        // 정글 지형 구조물: { x, y, w, h, angle }
 let lastSpawn = 0;
 let rafId = null;
 let lastFrameTime = 0;
@@ -82,6 +83,126 @@ function resizeCanvas(){
   }
 }
 window.addEventListener('resize', resizeCanvas);
+
+// ------------------------------------------------------------
+// 정글 지형(벽) 생성 — 소환사의 협곡 중립 지역 느낌의
+// 기하학적 배치. 화면 크기에 비례한 상대 좌표(0~1)로 정의한 뒤
+// 실제 픽셀로 환산한다.
+// ------------------------------------------------------------
+function buildWalls(w, h){
+  // 각 항목: rx, ry(중심 상대좌표 0~1), rw, rh(상대 크기), angle(도)
+  const layout = [
+    // 좌상단 대각 벽 (레드 정글 삼거리 느낌)
+    { rx: 0.20, ry: 0.22, rw: 0.30, rh: 0.075, angle: -28 },
+    // 우상단 대각 벽
+    { rx: 0.80, ry: 0.20, rw: 0.28, rh: 0.075, angle: 24 },
+    // 중앙 상단 수평 벽 (드래곤/바론 통로 느낌의 분리대)
+    { rx: 0.50, ry: 0.14, rw: 0.20, rh: 0.06, angle: 0 },
+    // 좌하단 대각 벽
+    { rx: 0.18, ry: 0.78, rw: 0.28, rh: 0.075, angle: 24 },
+    // 우하단 대각 벽
+    { rx: 0.82, ry: 0.80, rw: 0.30, rh: 0.075, angle: -26 },
+    // 중앙 하단 수평 벽
+    { rx: 0.50, ry: 0.86, rw: 0.20, rh: 0.06, angle: 0 },
+    // 좌측 중단 수직 벽 (강가 느낌)
+    { rx: 0.10, ry: 0.5, rw: 0.06, rh: 0.20, angle: 0 },
+    // 우측 중단 수직 벽
+    { rx: 0.90, ry: 0.5, rw: 0.06, rh: 0.20, angle: 0 },
+    // 중앙부 좁은 통로를 만드는 두 개의 벽 (센터 정글 느낌)
+    { rx: 0.38, ry: 0.5, rw: 0.16, rh: 0.06, angle: 45 },
+    { rx: 0.62, ry: 0.5, rw: 0.16, rh: 0.06, angle: -45 },
+  ];
+
+  walls = layout.map(l => ({
+    x: l.rx * w,
+    y: l.ry * h,
+    w: l.rw * w,
+    h: l.rh * h,
+    angle: l.angle * Math.PI / 180,
+  }));
+}
+
+// ------------------------------------------------------------
+// 충돌: 회전된 사각형(벽)과 원(entity) — SAT 근사
+// 벽의 로컬 좌표계로 점을 변환한 뒤 축정렬 사각형처럼 처리
+// ------------------------------------------------------------
+function resolveWallCollision(entity){
+  for (const wl of walls){
+    const cos = Math.cos(-wl.angle);
+    const sin = Math.sin(-wl.angle);
+    const dx = entity.x - wl.x;
+    const dy = entity.y - wl.y;
+    // 로컬 좌표
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+
+    const hw = wl.w / 2, hh = wl.h / 2;
+    const closestX = Math.max(-hw, Math.min(hw, lx));
+    const closestY = Math.max(-hh, Math.min(hh, ly));
+
+    const distX = lx - closestX;
+    const distY = ly - closestY;
+    const distSq = distX*distX + distY*distY;
+    const r = entity.radius;
+
+    if (distSq < r*r){
+      const dist = Math.sqrt(distSq) || 0.0001;
+      const pushLx = (distX / dist) * (r - dist);
+      const pushLy = (distY / dist) * (r - dist);
+      // 로컬 → 월드 역변환
+      const cosB = Math.cos(wl.angle);
+      const sinB = Math.sin(wl.angle);
+      const pushX = pushLx * cosB - pushLy * sinB;
+      const pushY = pushLx * sinB + pushLy * cosB;
+      entity.x += pushX;
+      entity.y += pushY;
+    }
+  }
+}
+
+// 투사체(작은 점)가 벽에 맞았는지 여부만 판정 (밀어내지 않고 소멸)
+function projectileHitsWall(p){
+  for (const wl of walls){
+    const cos = Math.cos(-wl.angle);
+    const sin = Math.sin(-wl.angle);
+    const dx = p.x - wl.x;
+    const dy = p.y - wl.y;
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+    const hw = wl.w / 2, hh = wl.h / 2;
+    if (Math.abs(lx) < hw + p.radius && Math.abs(ly) < hh + p.radius){
+      return true;
+    }
+  }
+  return false;
+}
+
+// 두 점을 잇는 선분이 벽에 막혀 시야가 차단되는지 (선분-사각형 근사 판정)
+function lineBlockedByWall(x1, y1, x2, y2){
+  for (const wl of walls){
+    const cos = Math.cos(-wl.angle);
+    const sin = Math.sin(-wl.angle);
+    const toLocal = (px, py) => {
+      const dx = px - wl.x, dy = py - wl.y;
+      return { x: dx*cos - dy*sin, y: dx*sin + dy*cos };
+    };
+    const a = toLocal(x1, y1);
+    const b = toLocal(x2, y2);
+    const hw = wl.w/2, hh = wl.h/2;
+
+    // 선분 샘플링 방식(가볍고 충분히 정확함)
+    const steps = 14;
+    let inside = false;
+    for (let i=0;i<=steps;i++){
+      const t = i/steps;
+      const px = a.x + (b.x-a.x)*t;
+      const py = a.y + (b.y-a.y)*t;
+      if (Math.abs(px) < hw && Math.abs(py) < hh){ inside = true; break; }
+    }
+    if (inside) return true;
+  }
+  return false;
+}
 
 // ------------------------------------------------------------
 // UI: 메뉴 패널
@@ -191,8 +312,12 @@ function startGame(){
   resizeCanvas();
 
   const rect = canvas.getBoundingClientRect();
+  buildWalls(rect.width, rect.height);
+
+  // 플레이어를 벽과 겹치지 않는 중앙 근처 지점에 배치
   player.x = rect.width / 2;
   player.y = rect.height / 2;
+  resolveWallCollision(player);
   player.targetX = player.x;
   player.targetY = player.y;
   player.moving = false;
@@ -211,8 +336,6 @@ function startGame(){
   updateBestDisplay();
 
   if (state.mode === 'kiting'){
-    // 시작 시 챔피언 3마리 배치
-    const d = DIFF[state.difficulty];
     for (let i=0;i<2;i++) spawnEnemy(rect.width, rect.height);
   }
 
@@ -241,7 +364,7 @@ function endGame(){
 }
 
 // ------------------------------------------------------------
-// 스폰: 카이팅 모드 (추적자)
+// 스폰: 카이팅 모드 (추적자) — 벽 위에 스폰되지 않도록 보정
 // ------------------------------------------------------------
 function spawnEnemy(w, h){
   const edge = Math.floor(Math.random()*4);
@@ -266,7 +389,6 @@ function spawnProjectile(w, h){
   else if (edge === 2){ x = Math.random()*w; y = h+margin; }
   else { x = -margin; y = Math.random()*h; }
 
-  // 플레이어를 향하되 약간의 예측/오차를 둠 (완전 조준 스킬샷)
   const spread = (Math.random()-0.5) * 0.35;
   const baseAngle = Math.atan2(player.y - y, player.x - x);
   const angle = baseAngle + spread;
@@ -307,6 +429,8 @@ function updatePlayer(dt, w, h){
   }
   player.x = Math.max(player.radius, Math.min(w - player.radius, player.x));
   player.y = Math.max(player.radius, Math.min(h - player.radius, player.y));
+
+  resolveWallCollision(player);
 }
 
 function updateKiting(dt, w, h, now){
@@ -324,7 +448,9 @@ function updateKiting(dt, w, h, now){
     en.x += (dx/dist) * d.enemySpeed * dt;
     en.y += (dy/dist) * d.enemySpeed * dt;
 
-    if (dist < player.radius + en.radius - 2){
+    resolveWallCollision(en);
+
+    if (dist < player.radius + en.radius - 2 && !lineBlockedByWall(player.x, player.y, en.x, en.y)){
       registerHit();
       const ang = Math.atan2(en.y - player.y, en.x - player.x);
       en.x = player.x + Math.cos(ang) * 80;
@@ -348,10 +474,16 @@ function updateDodge(dt, w, h, now){
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
+    // 벽에 맞으면 스킬샷 소멸 (엄폐 성공)
+    if (projectileHitsWall(p)){
+      spawnHitParticles(p.x, p.y, true);
+      return false;
+    }
+
     const dist = Math.hypot(player.x - p.x, player.y - p.y);
     if (dist < player.radius + p.radius - 4){
       registerHit();
-      spawnHitParticles(p.x, p.y);
+      spawnHitParticles(p.x, p.y, false);
       return false;
     }
 
@@ -366,7 +498,8 @@ function registerHit(){
   if (navigator.vibrate) navigator.vibrate(60);
 }
 
-function spawnHitParticles(x, y){
+function spawnHitParticles(x, y, isWallBlock){
+  const color = isWallBlock ? [120,150,170] : [255,150,90];
   for (let i=0;i<10;i++){
     const ang = Math.random()*Math.PI*2;
     const spd = 1 + Math.random()*2.5;
@@ -374,6 +507,7 @@ function spawnHitParticles(x, y){
       x, y,
       vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd,
       life: 26, maxLife: 26,
+      color,
     });
   }
 }
@@ -403,11 +537,37 @@ function drawGrid(w, h){
   ctx.restore();
 }
 
+function drawWalls(){
+  walls.forEach(wl => {
+    ctx.save();
+    ctx.translate(wl.x, wl.y);
+    ctx.rotate(wl.angle);
+
+    // 정글 벽 - 이끼 낀 돌 느낌의 그라디언트
+    const grad = ctx.createLinearGradient(0, -wl.h/2, 0, wl.h/2);
+    grad.addColorStop(0, '#2b3a2e');
+    grad.addColorStop(0.5, '#1c2620');
+    grad.addColorStop(1, '#0f1712');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(-wl.w/2, -wl.h/2, wl.w, wl.h);
+
+    ctx.strokeStyle = 'rgba(120,150,110,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-wl.w/2, -wl.h/2, wl.w, wl.h);
+
+    // 상단 하이라이트 (입체감)
+    ctx.fillStyle = 'rgba(160,190,150,0.12)';
+    ctx.fillRect(-wl.w/2, -wl.h/2, wl.w, 3);
+
+    ctx.restore();
+  });
+}
+
 function drawPlayer(now){
   const flashing = now < player.flashUntil;
   ctx.save();
 
-  // range indicator ring (kiting mode)
   if (state.mode === 'kiting'){
     ctx.beginPath();
     ctx.arc(player.x, player.y, 90, 0, Math.PI*2);
@@ -431,7 +591,6 @@ function drawPlayer(now){
   ctx.stroke();
   ctx.restore();
 
-  // target marker (touch scheme)
   if (state.scheme === 'touch' && player.moving){
     const dx = player.targetX - player.x, dy = player.targetY - player.y;
     if (Math.hypot(dx,dy) > 3){
@@ -448,12 +607,15 @@ function drawPlayer(now){
 
 function drawEnemies(){
   enemies.forEach(en => {
+    // 벽에 가려져 있으면 시야 차단 표시(반투명하게)
+    const hidden = lineBlockedByWall(player.x, player.y, en.x, en.y);
     ctx.save();
+    ctx.globalAlpha = hidden ? 0.35 : 1;
     ctx.beginPath();
     ctx.arc(en.x, en.y, en.radius, 0, Math.PI*2);
     ctx.fillStyle = '#8a2f2a';
     ctx.shadowColor = '#e0554f';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = hidden ? 0 : 10;
     ctx.fill();
     ctx.strokeStyle = '#f0b0a8';
     ctx.lineWidth = 1.5;
@@ -487,9 +649,10 @@ function drawProjectiles(){
 function drawParticles(){
   particles.forEach(p => {
     const a = p.life / p.maxLife;
+    const [r,g,b] = p.color || [255,150,90];
     ctx.beginPath();
     ctx.arc(p.x, p.y, 3*a, 0, Math.PI*2);
-    ctx.fillStyle = `rgba(255,150,90,${a})`;
+    ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
     ctx.fill();
   });
 }
@@ -521,6 +684,7 @@ function loop(now){
   // render
   ctx.clearRect(0, 0, w, h);
   drawGrid(w, h);
+  drawWalls();
   if (state.mode === 'kiting') drawEnemies();
   else drawProjectiles();
   drawParticles();
