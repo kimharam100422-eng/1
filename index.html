@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>무빙 도장 — 카이팅 & 스킬샷 회피 연습</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== 상단 HUD ===== -->
+  <header class="hud">
+    <div class="hud-brand">
+      <span class="hud-brand-mark">무빙도장</span>
+      <span class="hud-brand-sub">MOVEMENT DOJO</span>
+    </div>
+
+    <div class="hud-stats">
+      <div class="stat">
+        <span class="stat-label">생존시간</span>
+        <span class="stat-value" id="stat-time">00.0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">피격</span>
+        <span class="stat-value stat-danger" id="stat-hits">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">최고기록</span>
+        <span class="stat-value stat-gold" id="stat-best">00.0</span>
+      </div>
+    </div>
+
+    <button id="btn-menu" class="icon-btn" aria-label="메뉴">☰</button>
+  </header>
+
+  <!-- ===== 모드 선택 패널 ===== -->
+  <nav id="mode-panel" class="mode-panel">
+    <button class="mode-btn active" data-mode="kiting">
+      <span class="mode-icon">🏹</span>
+      <span class="mode-name">카이팅 연습</span>
+      <span class="mode-desc">거리를 유지하며 계속 이동하세요</span>
+    </button>
+    <button class="mode-btn" data-mode="dodge">
+      <span class="mode-icon">💥</span>
+      <span class="mode-name">스킬샷 회피</span>
+      <span class="mode-desc">날아오는 스킬을 피해 살아남으세요</span>
+    </button>
+
+    <div class="panel-divider"></div>
+
+    <div class="difficulty-row">
+      <span class="panel-label">난이도</span>
+      <div class="seg-control" id="difficulty-control">
+        <button class="seg-btn" data-diff="easy">쉬움</button>
+        <button class="seg-btn active" data-diff="normal">보통</button>
+        <button class="seg-btn" data-diff="hard">어려움</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <span class="panel-label">조작 방식</span>
+      <div class="seg-control" id="control-scheme">
+        <button class="seg-btn active" data-scheme="touch">터치 이동</button>
+        <button class="seg-btn" data-scheme="keyboard">WASD</button>
+      </div>
+    </div>
+
+    <button id="btn-start" class="start-btn">훈련 시작</button>
+  </nav>
+
+  <!-- ===== 게임 캔버스 영역 ===== -->
+  <main class="arena-wrap">
+    <canvas id="arena"></canvas>
+
+    <div id="overlay-start" class="overlay">
+      <div class="overlay-card">
+        <p class="overlay-eyebrow">READY CHECK</p>
+        <h1 class="overlay-title">협곡에 발을 들이세요</h1>
+        <p class="overlay-body">
+          화면을 터치한 지점으로 캐릭터가 이동합니다.<br>
+          PC에서는 W A S D 로 이동할 수 있습니다.
+        </p>
+        <button class="overlay-btn" id="btn-overlay-start">시작하기</button>
+      </div>
+    </div>
+
+    <div id="overlay-result" class="overlay hidden">
+      <div class="overlay-card">
+        <p class="overlay-eyebrow" id="result-eyebrow">TRAINING REPORT</p>
+        <h1 class="overlay-title" id="result-title">기록 완료</h1>
+        <div class="result-grid">
+          <div class="result-item">
+            <span class="result-num" id="result-time">00.0</span>
+            <span class="result-label">생존 시간(초)</span>
+          </div>
+          <div class="result-item">
+            <span class="result-num" id="result-hits">0</span>
+            <span class="result-label">피격 횟수</span>
+          </div>
+        </div>
+        <button class="overlay-btn" id="btn-retry">다시 훈련</button>
+      </div>
+    </div>
+
+    <!-- 모바일 터치 이동 표시 -->
+    <div id="touch-marker" class="touch-marker hidden"></div>
+  </main>
+
+</div>
+
+<script src="js/main.js"></script>
+</body>
+</html>
